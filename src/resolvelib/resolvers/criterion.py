@@ -42,7 +42,9 @@ class Criterion(Generic[RT, CT]):
         return f"Criterion({requirements})"
 
     def iter_requirement(self) -> Iterator[RT]:
-        return (i.requirement for i in self.information)
+        # Using generator expression to yield requirements directly
+        for info in self.information:
+            yield info.requirement
 
     def iter_parent(self) -> Iterator[CT | None]:
-        return (i.parent for i in self.information)
+        return iter(map(lambda i: i.parent, self.information))

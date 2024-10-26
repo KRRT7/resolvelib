@@ -45,4 +45,6 @@ class Criterion(Generic[RT, CT]):
         return (i.requirement for i in self.information)
 
     def iter_parent(self) -> Iterator[CT | None]:
-        return (i.parent for i in self.information)
+        # Directly using a generator
+        for i in self.information:
+            yield i.parent

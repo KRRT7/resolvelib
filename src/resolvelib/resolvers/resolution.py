@@ -25,6 +25,8 @@ from .exceptions import (
     ResolutionTooDeep,
     ResolverException,
 )
+from resolvelib.providers import AbstractProvider
+from resolvelib.reporters import BaseReporter
 
 if TYPE_CHECKING:
     from ..providers import AbstractProvider, Preference
@@ -79,10 +81,9 @@ class Resolution(Generic[RT, CT, KT]):
 
     @property
     def state(self) -> State[RT, CT, KT]:
-        try:
-            return self._states[-1]
-        except IndexError as e:
-            raise AttributeError("state") from e
+        if not self._states:
+            raise AttributeError("state")
+        return self._states[-1]
 
     def _push_new_state(self) -> None:
         """Push a new state into history.
@@ -187,12 +188,12 @@ class Resolution(Generic[RT, CT, KT]):
     def _is_current_pin_satisfying(
         self, name: KT, criterion: Criterion[RT, CT]
     ) -> bool:
-        try:
-            current_pin = self.state.mapping[name]
-        except KeyError:
+        current_pin = self.state.mapping.get(name)
+        if current_pin is None:
             return False
+        is_satisfied_by = self._p.is_satisfied_by
         return all(
-            self._p.is_satisfied_by(requirement=r, candidate=current_pin)
+            is_satisfied_by(requirement=r, candidate=current_pin)
             for r in criterion.iter_requirement()
         )
 

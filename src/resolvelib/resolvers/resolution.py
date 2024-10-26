@@ -25,6 +25,8 @@ from .exceptions import (
     ResolutionTooDeep,
     ResolverException,
 )
+from resolvelib.providers import AbstractProvider
+from resolvelib.reporters import BaseReporter
 
 if TYPE_CHECKING:
     from ..providers import AbstractProvider, Preference
@@ -155,19 +157,23 @@ class Resolution(Generic[RT, CT, KT]):
         """
         if not parents:
             return
+
+        parents_set = set(parents)  # Convert to set for O(1) lookups
+        identify = self._p.identify
+
         for key, criterion in criteria.items():
-            criteria[key] = Criterion(
-                criterion.candidates,
-                [
-                    information
-                    for information in criterion.information
-                    if (
-                        information.parent is None
-                        or self._p.identify(information.parent) not in parents
-                    )
-                ],
-                criterion.incompatibilities,
-            )
+            new_information = [
+                information
+                for information in criterion.information
+                if information.parent is None
+                or identify(information.parent) not in parents_set
+            ]
+            if len(new_information) != len(criterion.information):
+                criteria[key] = Criterion(
+                    criterion.candidates,
+                    new_information,
+                    criterion.incompatibilities,
+                )
 
     def _get_preference(self, name: KT) -> Preference:
         return self._p.get_preference(

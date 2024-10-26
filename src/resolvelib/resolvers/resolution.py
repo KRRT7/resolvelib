@@ -25,6 +25,8 @@ from .exceptions import (
     ResolutionTooDeep,
     ResolverException,
 )
+from resolvelib.providers import AbstractProvider
+from resolvelib.reporters import BaseReporter
 
 if TYPE_CHECKING:
     from ..providers import AbstractProvider, Preference
@@ -79,10 +81,9 @@ class Resolution(Generic[RT, CT, KT]):
 
     @property
     def state(self) -> State[RT, CT, KT]:
-        try:
-            return self._states[-1]
-        except IndexError as e:
-            raise AttributeError("state") from e
+        if not self._states:
+            raise AttributeError("state")
+        return self._states[-1]
 
     def _push_new_state(self) -> None:
         """Push a new state into history.
@@ -108,10 +109,8 @@ class Resolution(Generic[RT, CT, KT]):
 
         identifier = self._p.identify(requirement_or_candidate=requirement)
         criterion = criteria.get(identifier)
-        if criterion:
-            incompatibilities = list(criterion.incompatibilities)
-        else:
-            incompatibilities = []
+
+        incompatibilities = criterion.incompatibilities if criterion else []
 
         matches = self._p.find_matches(
             identifier=identifier,
@@ -127,19 +126,18 @@ class Resolution(Generic[RT, CT, KT]):
             ),
         )
 
-        if criterion:
-            information = list(criterion.information)
-            information.append(RequirementInformation(requirement, parent))
-        else:
-            information = [RequirementInformation(requirement, parent)]
+        information = list(criterion.information) if criterion else []
+        information.append(RequirementInformation(requirement, parent))
 
         criterion = Criterion(
             candidates=build_iter_view(matches),
             information=information,
             incompatibilities=incompatibilities,
         )
+
         if not criterion.candidates:
             raise RequirementsConflicted(criterion)
+
         criteria[identifier] = criterion
 
     def _remove_information_from_criteria(

@@ -25,6 +25,8 @@ from .exceptions import (
     ResolutionTooDeep,
     ResolverException,
 )
+from resolvelib.providers import AbstractProvider
+from resolvelib.reporters import BaseReporter
 
 if TYPE_CHECKING:
     from ..providers import AbstractProvider, Preference
@@ -79,10 +81,9 @@ class Resolution(Generic[RT, CT, KT]):
 
     @property
     def state(self) -> State[RT, CT, KT]:
-        try:
-            return self._states[-1]
-        except IndexError as e:
-            raise AttributeError("state") from e
+        if not self._states:
+            raise AttributeError("state")
+        return self._states[-1]
 
     def _push_new_state(self) -> None:
         """Push a new state into history.
@@ -242,14 +243,11 @@ class Resolution(Generic[RT, CT, KT]):
     def _patch_criteria(
         self, incompatibilities_from_broken: list[tuple[KT, list[CT]]]
     ) -> bool:
-        # Create a new state from the last known-to-work one, and apply
-        # the previously gathered incompatibility information.
         for k, incompatibilities in incompatibilities_from_broken:
             if not incompatibilities:
                 continue
-            try:
-                criterion = self.state.criteria[k]
-            except KeyError:
+            criterion = self.state.criteria.get(k, None)
+            if criterion is None:
                 continue
             matches = self._p.find_matches(
                 identifier=k,
@@ -305,62 +303,44 @@ class Resolution(Generic[RT, CT, KT]):
             the new Z and go back to step 2.
         5b. If the incompatibilities apply cleanly, end backtracking.
         """
-        incompatible_reqs: Iterable[CT | RT] = itertools.chain(
+        incompatible_reqs = itertools.chain(
             (c.parent for c in causes if c.parent is not None),
             (c.requirement for c in causes),
         )
         incompatible_deps = {self._p.identify(r) for r in incompatible_reqs}
-        while len(self._states) >= 3:
-            # Remove the state that triggered backtracking.
-            del self._states[-1]
 
-            # Optimistically backtrack to a state that caused the incompatibility
+        while len(self._states) >= 3:
+            self._states.pop()
+
             broken_state = self.state
             while True:
-                # Retrieve the last candidate pin and known incompatibilities.
                 try:
                     broken_state = self._states.pop()
                     name, candidate = broken_state.mapping.popitem()
                 except (IndexError, KeyError):
                     raise ResolutionImpossible(causes) from None
 
-                # Only backjump if the current broken state is
-                # an incompatible dependency
                 if name not in incompatible_deps:
                     break
 
-                # If the current dependencies and the incompatible dependencies
-                # are overlapping then we have found a cause of the incompatibility
                 current_dependencies = {
                     self._p.identify(d) for d in self._p.get_dependencies(candidate)
                 }
                 if not current_dependencies.isdisjoint(incompatible_deps):
                     break
 
-                # Fallback: We should not backtrack to the point where
-                # broken_state.mapping is empty, so stop backtracking for
-                # a chance for the resolution to recover
                 if not broken_state.mapping:
                     break
 
             incompatibilities_from_broken = [
                 (k, list(v.incompatibilities)) for k, v in broken_state.criteria.items()
             ]
-
-            # Also mark the newly known incompatibility.
             incompatibilities_from_broken.append((name, [candidate]))
 
             self._push_new_state()
-            success = self._patch_criteria(incompatibilities_from_broken)
-
-            # It works! Let's work on this new state.
-            if success:
+            if self._patch_criteria(incompatibilities_from_broken):
                 return True
 
-            # State does not work after applying known incompatibilities.
-            # Try the still previous state.
-
-        # No way to backtrack anymore.
         return False
 
     def _extract_causes(
